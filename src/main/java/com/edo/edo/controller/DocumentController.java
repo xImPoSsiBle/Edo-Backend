@@ -7,21 +7,16 @@ import com.edo.edo.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.docx4j.openpackaging.packages.WordprocessingMLPackage;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import org.docx4j.convert.in.xhtml.XHTMLImporterImpl;
-import org.docx4j.openpackaging.packages.WordprocessingMLPackage;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/docs")
@@ -38,17 +33,17 @@ public class DocumentController {
                         @RequestParam("tag") String tag,
                         @RequestParam("recipient") String recipient,
                         Principal principal) throws IOException {
-                System.out.println("📨 Получатель: " + '[' + recipient + ']');
-                userRepository.findAll().forEach(user -> System.out.println("👤 User: " + user.getEmail()));
+                var recipientUser = userRepository.findByEmail(recipient.trim())
+                                .orElseThrow(() -> new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND,
+                                                "Пользователь с email '" + recipient + "' не найден"));
 
                 Document doc = Document.builder()
                                 .name(name)
                                 .tag(tag)
-                                .recipient(userRepository.findByEmail(recipient.trim()).orElseThrow(
-                                                () -> new RuntimeException("❌ Пользователь с email '" + recipient
-                                                                + "' не найден")))
+                                .recipient(recipientUser)
                                 .sender(userRepository.findByEmail(principal.getName().trim()).orElseThrow())
-                                .status("Черновик")
+                                .status("На рассмотрении")
                                 .created(LocalDateTime.now())
                                 .modified(LocalDateTime.now())
                                 .fileName(file.getOriginalFilename())
@@ -71,15 +66,7 @@ public class DocumentController {
                                 .body(doc.getFileData());
         }
 
-        @GetMapping("/getInboxDocs")
-        public ResponseEntity<List<Document>> getInboxDocuments(Principal principal) {
-                System.out.println("📥 Запрос на inbox от: " + principal.getName());
-                var recipient = userRepository.findByEmail(principal.getName().trim())
-                                .orElseThrow(() -> new RuntimeException("Пользователь не найден"));
-
-                List<Document> inboxDocs = documentRepository.findByRecipient(recipient);
-                return ResponseEntity.ok(inboxDocs);
-        }
+        
 
         @GetMapping("/{id}")
         public ResponseEntity<Document> getDocumentById(@PathVariable Long id, Principal principal) {
@@ -118,5 +105,19 @@ public class DocumentController {
                 List<Document> approvedSent = documentRepository.findBySenderAndStatus(me, "Утвержден");
                 approvedReceived.addAll(approvedSent);
                 return ResponseEntity.ok(approvedReceived);
+        }
+
+        @DeleteMapping("/{id}")
+        public ResponseEntity<Void> deleteDocument(@PathVariable Long id, Principal principal) {
+                Document doc = documentRepository.findById(id)
+                                .orElseThrow(() -> new RuntimeException("Документ не найден с id=" + id));
+
+                User me = userRepository.findByEmail(principal.getName()).orElseThrow();
+                if (!doc.getSender().getId().equals(me.getId())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+
+                documentRepository.delete(doc);
+                return ResponseEntity.noContent().build();
         }
 }
