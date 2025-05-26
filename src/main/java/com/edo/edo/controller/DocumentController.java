@@ -86,6 +86,17 @@ public class DocumentController {
                 return ResponseEntity.ok(updated);
         }
 
+        @PutMapping("/{id}/reject")
+        public ResponseEntity<Document> rejectDocument(@PathVariable Long id, Principal principal) {
+                Document doc = documentRepository.findById(id)
+                                .orElseThrow(() -> new RuntimeException("Документ не найден с id=" + id));
+
+                doc.setStatus("Отклонен");
+                doc.setModified(LocalDateTime.now());
+                Document updated = documentRepository.save(doc);
+                return ResponseEntity.ok(updated);
+        }
+
         @GetMapping("/inbox")
         public ResponseEntity<List<Document>> getReceived(Principal principal) {
                 User me = userRepository.findByEmail(principal.getName()).orElseThrow();
@@ -105,6 +116,15 @@ public class DocumentController {
                 List<Document> approvedSent = documentRepository.findBySenderAndStatus(me, "Утвержден");
                 approvedReceived.addAll(approvedSent);
                 return ResponseEntity.ok(approvedReceived);
+        }
+
+        @GetMapping("/rejected")
+        public ResponseEntity<List<Document>> getRejected(Principal principal) {
+                User me = userRepository.findByEmail(principal.getName()).orElseThrow();
+                List<Document> rejectedReceived = documentRepository.findByRecipientAndStatus(me, "Отклонен");
+                List<Document> rejectedSent = documentRepository.findBySenderAndStatus(me, "Отклонен");
+                rejectedReceived.addAll(rejectedSent);
+                return ResponseEntity.ok(rejectedReceived);
         }
 
         @DeleteMapping("/{id}")
